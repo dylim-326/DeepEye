@@ -24,6 +24,9 @@ export default function HeroSection() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  // ✅ 용량 제한 상수 (30MB)
+  const MAX_FILE_SIZE = 30 * 1024 * 1024; 
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
@@ -62,13 +65,12 @@ export default function HeroSection() {
     };
   }, []);
 
-  // ✅ 진행률 시뮬레이션 함수
   const startProgressSimulation = () => {
     setProgress(0);
     return setInterval(() => {
       setProgress((prev) => {
-        if (prev >= 95) return 95; // 실제 응답 전까지 95%에서 대기
-        const increment = Math.random() * 7; // 무작위 증가로 생동감 부여
+        if (prev >= 95) return 95; 
+        const increment = Math.random() * 7; 
         return Math.min(prev + increment, 95);
       });
     }, 600);
@@ -93,6 +95,13 @@ export default function HeroSection() {
     if (!isImage && !isVideo) {
       alert("이미지 또는 영상 파일만 업로드 가능합니다.");
       return;
+    }
+
+    // ✅ [추가] 30MB 용량 제한 체크
+    if (file.size > MAX_FILE_SIZE) {
+        alert(`⚠️ 업로드 실패: 파일 용량이 너무 큽니다. (최대 30MB)\n현재 파일 용량: ${(file.size / (1024 * 1024)).toFixed(1)}MB`);
+        setFileName("");
+        return;
     }
 
     if (isVideo) {
@@ -126,7 +135,7 @@ export default function HeroSection() {
       const response = await predictImage(formData);
       if (response && response.data) {
         clearInterval(timer);
-        setProgress(100); // 응답 성공 시 100% 점프
+        setProgress(100); 
         setTimeout(() => {
           navigate("/result", { state: response.data });
         }, 600);
@@ -134,7 +143,12 @@ export default function HeroSection() {
     } catch (error) {
       clearInterval(timer);
       console.error("Analysis Error:", error);
-      alert("서버 연결에 실패했거나 분석 중 오류가 발생했습니다.");
+      // 서버에서 413 에러(용량 초과)를 보냈을 경우에 대한 대응
+      if (error.response && error.response.status === 413) {
+          alert("서버에서 거부되었습니다: 파일 용량이 30MB를 초과합니다.");
+      } else {
+          alert("서버 연결에 실패했거나 분석 중 오류가 발생했습니다.");
+      }
       setIsAnalyzing(false);
     }
   };
@@ -209,7 +223,6 @@ export default function HeroSection() {
     >
       <canvas ref={canvasRef} className="glitch-canvas" />
 
-      {/* ✅ 원형 로딩바 및 퍼센트 오버레이 */}
       <AnimatePresence>
         {isAnalyzing && (
           <motion.div 
@@ -223,7 +236,6 @@ export default function HeroSection() {
               display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'
             }}
           >
-            {/* 원형 프로그레스 바 */}
             <div className="progress-wrapper" style={{ position: 'relative', width: '140px', height: '140px' }}>
                 <svg viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)', width: '100%', height: '100%' }}>
                     <circle 
@@ -291,7 +303,8 @@ export default function HeroSection() {
               <span className="upload-text">
                 {fileName ? fileName : "Image & Video"}
               </span>
-              <p className="upload-hint">Up to 3min for video</p>
+              {/* ✅ 용량 제한 가이드 텍스트 추가 */}
+              <p className="upload-hint">Max 30MB</p>
             </label>
             <input
               id="video-upload"

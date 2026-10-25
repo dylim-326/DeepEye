@@ -5,33 +5,30 @@ export default function VerdictInsight({ data }) {
   const [input, setInput] = useState("");
   const [chat, setChat] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
-  // ✅ 질문 횟수 추적을 위한 상태 추가
   const [questionCount, setQuestionCount] = useState(0);
   const chatWindowRef = useRef(null);
 
-  // 1. 데이터 로드 시 초기 세팅
+  // 1. Initial setup upon data load
   useEffect(() => {
     if (data && data.llm_report) {
       setChat([{ type: 'ai', text: data.llm_report }]);
     } else {
-      setChat([{ type: 'ai', text: "LIME 분석을 토대로 이 영상의 위조 가능성에 대해 궁금한 점을 물어보세요." }]);
+      setChat([{ type: 'ai', text: "Ask any questions regarding manipulation probability based on the LIME analysis." }]);
     }
-    // 새로운 영상 분석 시 횟수 초기화 (필요 시)
     setQuestionCount(0);
   }, [data]);
 
-  // 2. 자동 스크롤
+  // 2. Auto-scroll
   useEffect(() => {
     if (chatWindowRef.current) {
       chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
     }
   }, [chat]);
 
-  // 3. 메시지 전송 함수
+  // 3. Message sending handler
   const sendMsg = async (e) => {
     e.preventDefault();
     
-    // ✅ 3번 제한 체크
     if (!input || isTyping || questionCount >= 3) return;
 
     const userMessage = input;
@@ -47,23 +44,21 @@ export default function VerdictInsight({ data }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: userMessage,
-          context: data,           // 이전 분석 데이터
-          lime_url: data.lime_url  // ✅ Gemini가 사진을 볼 수 있도록 URL 전달!
+          context: data,           
+          lime_url: data.lime_url   
         }),
       });
 
-      if (!response.ok) throw new Error("서버 응답 오류");
+      if (!response.ok) throw new Error("Server response error");
 
       const resData = await response.json();
 
       setChat((prev) => [...prev, { type: 'ai', text: resData.reply }]);
-      
-      // ✅ 질문 성공 시 횟수 증가
       setQuestionCount(prev => prev + 1);
 
     } catch (error) {
-      console.error("챗봇 에러:", error);
-      setChat((prev) => [...prev, { type: 'ai', text: "죄송합니다. 답변을 가져오는 중 오류가 발생했습니다." }]);
+      console.error("Chat error:", error);
+      setChat((prev) => [...prev, { type: 'ai', text: "An error occurred while retrieving the response." }]);
     } finally {
       setIsTyping(false);
     }
@@ -76,7 +71,6 @@ export default function VerdictInsight({ data }) {
   const rawScore = (data.final_score || 0) * 100;
   const displayScore = isFake ? rawScore : (100 - rawScore);
 
-  // ✅ 질문 가능 여부 계산
   const isLimitReached = questionCount >= 3;
 
   return (
@@ -91,31 +85,29 @@ export default function VerdictInsight({ data }) {
               {displayScore.toFixed(1)}%
             </span>
             <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', fontWeight: '400' }}>
-              (신뢰도)
+              (Confidence)
             </span>
           </div>
         </div>
 
         <div className="ensemble-info">
-          AI가 {displayScore.toFixed(1)}%의 신뢰도로 이 미디어를 <strong>{data.result}</strong>이라 판정했습니다.
+          AI determined this media as <strong>{data.result}</strong> with {displayScore.toFixed(1)}% confidence.
           
-          {/* ✅ 시스템 아키텍처 및 질문 기회 설명 영역 */}
           <div style={{ marginTop: '8px', fontSize: '0.8rem', lineHeight: '1.4' }}>
             <div style={{ opacity: 0.5 }}>
-              • <strong>판정 엔진:</strong> EfficientNet-B0 기반 정밀 분석 수행
+              • <strong>Decision Engine:</strong> Precision analysis via EfficientNet-B0
             </div>
             <div style={{ opacity: 0.5 }}>
-              • <strong>시각적 검증:</strong> MesoNet 기반 LIME 피처 교차 검증 적용
+              • <strong>Visual Verification:</strong> Cross-validation via MesoNet-based LIME
             </div>
             
-            {/* ✅ 질문 기회 (디자인 가독성을 위해 별도 줄 또는 강조된 스타일로 배치) */}
             <div style={{ 
               marginTop: '6px', 
               color: isLimitReached ? '#FF4D4D' : '#00FFC8', 
               fontWeight: '600',
               letterSpacing: '0.5px'
             }}>
-              ● 질문 기회: {3 - questionCount} / 3 남아있음
+              ● Remaining Queries: {3 - questionCount} / 3 left
             </div>
           </div>
         </div>
@@ -128,19 +120,18 @@ export default function VerdictInsight({ data }) {
               {m.text}
             </div>
           ))}
-          {isTyping && <div className="bubble ai typing">답변을 생각 중입니다...</div>}
-          {isLimitReached && <div className="bubble ai" style={{ opacity: 0.5 }}>🚫 질문 횟수(3회)를 모두 사용하였습니다.</div>}
+          {isTyping && <div className="bubble ai typing">AI is generating response...</div>}
+          {isLimitReached && <div className="bubble ai" style={{ opacity: 0.5 }}>🚫 You have reached the maximum limit of 3 questions.</div>}
         </div>
         
-        {/* ✅ 질문 횟수가 초과되면 input과 button을 비활성화(disabled) */}
         <form onSubmit={sendMsg} className="input-group" style={{ opacity: isLimitReached ? 0.5 : 1 }}>
           <input 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             placeholder={
               isLimitReached 
-                ? "질문 횟수 초과" 
-                : isTyping ? "AI가 응답 중입니다..." : "AI에게 질문하기..."
+                ? "Query limit reached" 
+                : isTyping ? "AI is responding..." : "Ask AI a question..."
             } 
             autoComplete="off"
             disabled={isTyping || isLimitReached}

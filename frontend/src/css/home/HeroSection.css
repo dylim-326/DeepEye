@@ -169,9 +169,10 @@
 }
 
 .upload-hint {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 4px;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 8px;
+  font-weight: 400;
 }
 
 .link-input-group {
@@ -243,6 +244,18 @@
   color: rgba(255, 255, 255, 0.5);
   text-align: center;
   white-space: nowrap;
+}
+
+/* 드래그 앤 드롭 시 활성화 상태 */
+.upload-box.drag-active {
+  border: 2px dashed #00ffc8;
+  background: rgba(0, 255, 200, 0.05);
+}
+
+/* 업로드 중 비활성화 스타일 */
+input:disabled, button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* 단위 포함 입력창 스타일링 */

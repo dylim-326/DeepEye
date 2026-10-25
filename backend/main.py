@@ -1,21 +1,21 @@
+import io
+import os
+import time
+import uuid
+import cv2
+from dotenv import load_dotenv
+from fastapi import BackgroundTasks, Body, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from google import genai
+from lime import lime_image
+import numpy as np
+from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models, transforms
-from fastapi import FastAPI, File, UploadFile, Body, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from PIL import Image
-import io
-import os
-import uuid
-import cv2
-import numpy as np
-from lime import lime_image
 import yt_dlp
-import time
-from dotenv import load_dotenv
-from google import genai
 
 # .env 파일 로드
 load_dotenv()
@@ -23,15 +23,14 @@ load_dotenv()
 app = FastAPI()
 
 # ---------------------------------------------------------
-# 0. Gemini 설정 (정식 v1 버전 및 최신 모델 고정)
+# 0. Gemini 설정 및 세션 관리
 # ---------------------------------------------------------
 GENAI_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GENAI_KEY, http_options={"api_version": "v1"})
-
-# 도연님의 프로젝트 권한 목록에서 확인된 최상위 모델
 MODEL_NAME = "gemini-2.5-flash"
 
-# 1. CORS 및 Static 설정
+chat_sessions = {}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,7 +45,6 @@ if not os.path.exists(STATIC_DIR):
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-# ✅ 오래된 파일 삭제 로직
 def cleanup_old_files(directory: str, max_age_seconds: int = 3600):
     try:
         now = time.time()
@@ -59,7 +57,9 @@ def cleanup_old_files(directory: str, max_age_seconds: int = 3600):
         print(f"⚠️ Cleanup Error: {e}")
 
 
-# 2. MesoNet2 모델 정의 (딥페이크 탐지용)
+# ---------------------------------------------------------
+# 2. MesoNet2 모델 정의
+# ---------------------------------------------------------
 class MesoNet2(nn.Module):
     def __init__(self, num_classes=2):
         super(MesoNet2, self).__init__()
@@ -90,7 +90,7 @@ class MesoNet2(nn.Module):
         return self.fc(x.view(x.size(0), -1))
 
 
-device = torch.device("cpu")
+device = torch.device("cpu")  # GPU 사용 시 "cuda"로 변경
 eff_transform = transforms.Compose(
     [
         transforms.Resize((224, 224)),
@@ -138,72 +138,52 @@ def batch_predict_meso(imgs):
 
 
 # ---------------------------------------------------------
-# ✅ 1. 인간 친화적 리포트 생성기 (Human-like Reasoning)
+# ✅ 1. 공학적 근거 기반 리포트 생성기
 # ---------------------------------------------------------
 async def get_llm_report(data: dict):
+    eff_result = "FAKE" if data["eff_score"] >= 0.5 else "REAL"
+    meso_result = "FAKE" if data["meso_score"] >= 0.5 else "REAL"
+
+    if data["is_discrepancy"]:
+        consensus_status = f"Discrepancy detected: Primary model predicted {eff_result}, auxiliary model predicted {meso_result}."
+    else:
+        consensus_status = (
+            f"Consensus achieved: Both models classified the media as {eff_result}."
+        )
+
     prompt = f"""
-    너는 인공지능 기반 딥페이크 탐지 시스템 'DeepEye'의 전문 분석관이야. 
-    사용자에게 다음 분석 결과를 설명해주되, 전문 용어보다는 '사람이 눈으로 봤을 때의 특징'으로 풀어서 3~4문장으로 작성해줘.
+    You are an expert forensic analyst for the deepfake detection system 'DeepEye'.
+    Write a concise forensic analysis report within 10 lines in fluent English based on the following engineering evidence and empirical observations.
+    All outputs must strictly be written in English.
 
-    [분석 데이터]
-    - 판정: {data['result']} (신뢰도: {data['final_score'] * 100:.2f}%)
-    - 모델별 확률: 메인({data['eff_score']:.4f}), 보조({data['meso_score']:.4f})
-    - 불일치 여부: {data['is_discrepancy']}
+    [Key Data]
+    - Final Verdict: {data['result']} (Confidence: {data['final_score'] * 100:.2f}%)
+    - Primary Model (EffNet) Score: {data['eff_score']:.4f} ({eff_result})
+    - Auxiliary Model (MesoNet) Score: {data['meso_score']:.4f} ({meso_result})
+    - Agreement Status: {consensus_status}
 
-    [작성 가이드]
-    1. '픽셀 값 변화' 대신 '피부 질감의 부자연스러움'이나 '턱선/눈가 경계의 흔들림' 같은 표현을 써줘.
-    2. REAL 판정이라면 '실제 인간의 미세한 근육 움직임이 자연스럽게 포착됨' 등을 언급해줘.
-    3. LIME 시각화의 색상(노랑, 주황, 빨강)이 탐지의 핵심 근거임을 강조해줘.
-    4. 답변 시 마크다운(bold 기호 ** 등)을 절대 사용하지 말고 순수 텍스트만 출력해줘.
+    [Guidelines]
+    1. Technical & Empirical Explanation: Refer to fine-grained visual artifacts and link visual cues with phrases such as "Notably, unnatural noise clustering around [facial region] highlighted in the heatmap is clearly observed."
+    2. Data Fidelity: You must explicitly cite the scores and metrics provided above in the report.
+    3. Engineering Perspectives: Explain EffNet's findings in terms of 'skin texture and noise patterns', and MesoNet's findings in terms of 'mesoscopic facial structure and lighting consistency'.
+    4. Tone & Format: Professional, objective forensic tone. Output pure plain text without markdown formatting (do not use asterisks or bold text).
+    5. Closing Statement: The final sentence must strictly be: "Up to 3 follow-up questions are allowed."
     """
+
     try:
         response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
         return response.text.strip()
     except Exception as e:
-        print(f"❌ Report Error: {e}")
-        return "분석 리포트를 생성하는 중 일시적인 오류가 발생했습니다."
+        print(f"❌ [Gemini API Error Detail]: {e}")
+        return "An error occurred while generating the forensic analysis report."
 
 
 # ---------------------------------------------------------
-# ✅ 2. 멀티모달 챗봇 (이미지 직접 분석)
-# ---------------------------------------------------------
-@app.post("/chat")
-async def chat_with_deepeye(payload: dict = Body(...)):
-    user_msg = payload.get("message")
-    context = payload.get("context", "분석 정보 없음")
-    lime_url = payload.get("lime_url", "")
-
-    try:
-        content_list = [f"""
-        너는 DeepEye의 시각 지능 대화 AI야.
-        함께 제공된 [이미지]는 LIME 기법으로 모델이 '어디를 보고 판단했는지' 색칠한 결과물이야.
-        노란색/주황색/빨간색으로 칠해진 부분이 실제 사람의 '어느 부위'인지(예: 왼쪽 눈, 턱선, 배경 창문 틀 등) 
-        이미지를 직접 보고 분석해서 질문에 답해줘. 답변 시 마크다운(bold 기호 ** 등)을 절대 사용하지 말고 순수 텍스트만 출력해줘.
-        
-        문맥 정보: {context}
-        사용자 질문: {user_msg}
-        """]
-
-        if lime_url:
-            image_name = lime_url.split("/")[-1]
-            image_path = os.path.join(STATIC_DIR, image_name)
-            if os.path.exists(image_path):
-                img = Image.open(image_path)
-                content_list.append(img)
-
-        response = client.models.generate_content(
-            model=MODEL_NAME, contents=content_list
-        )
-        return {"reply": response.text.strip()}
-    except Exception as e:
-        print(f"❌ Chat Error: {e}")
-        return {"reply": "서버 통신이 원활하지 않습니다. 잠시 후 다시 질문해 주세요."}
-
-
-# ---------------------------------------------------------
-# ✅ 3. 분석 공통 함수 및 엔드포인트
+# ✅ 3. 분석 메인 로직 (타이머 측정 포함)
 # ---------------------------------------------------------
 async def analyze_image(image: Image.Image, unique_id: str):
+    inference_start = time.time()
+
     image_rgb = image.convert("RGB").resize((224, 224))
     img_array = np.array(image_rgb) / 255.0
 
@@ -223,7 +203,7 @@ async def analyze_image(image: Image.Image, unique_id: str):
     _, mask_eff = exp_eff.get_image_and_mask(
         exp_eff.top_labels[0],
         positive_only=True,
-        num_features=2,
+        num_features=3,
         hide_rest=False,
         min_weight=0.05,
     )
@@ -237,10 +217,11 @@ async def analyze_image(image: Image.Image, unique_id: str):
         _, mask_meso = exp_meso.get_image_and_mask(
             exp_meso.top_labels[0],
             positive_only=True,
-            num_features=2,
+            num_features=5,
             hide_rest=False,
             min_weight=0.05,
         )
+
         for y in range(224):
             for x in range(224):
                 if mask_eff[y, x] and mask_meso[y, x]:
@@ -256,10 +237,10 @@ async def analyze_image(image: Image.Image, unique_id: str):
                     overlay[y, x] = [255, 255, 0]
 
     combined = cv2.addWeighted(np.array(image_rgb), 0.5, overlay, 0.5, 0)
-    adjusted_score = min(eff_prob, 0.9992) if eff_prob > 0.5 else max(eff_prob, 0.0008)
-
     lime_image_name = f"lime_{unique_id}.png"
     Image.fromarray(combined).save(os.path.join(STATIC_DIR, lime_image_name))
+
+    adjusted_score = min(eff_prob, 0.9992) if eff_prob > 0.5 else max(eff_prob, 0.0008)
 
     analysis_result = {
         "eff_score": round(eff_prob, 4),
@@ -268,65 +249,122 @@ async def analyze_image(image: Image.Image, unique_id: str):
         "result": eff_result,
         "lime_url": f"http://127.0.0.1:8000/static/{lime_image_name}",
         "is_discrepancy": eff_result != meso_result,
+        "session_id": unique_id,
     }
 
+    inference_end = time.time()
+    step2_time = inference_end - inference_start
+
+    llm_start = time.time()
     analysis_result["llm_report"] = await get_llm_report(analysis_result)
+    llm_end = time.time()
+    step3_time = llm_end - llm_start
+
+    print(f"\n[Performance Measurement - ID: {unique_id}]")
+    print(f"Phase 2 (Inference & LIME): {step2_time:.4f}s")
+    print(f"Phase 3 (Gemini Report): {step3_time:.4f}s")
+
+    analysis_result["step2_time"] = step2_time
+    analysis_result["step3_time"] = step3_time
+
     return analysis_result
 
 
+# ---------------------------------------------------------
+# ✅ API Endpoints (1단계 측정 포함)
+# ---------------------------------------------------------
 @app.post("/predict")
 async def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    step1_start = time.time()
     background_tasks.add_task(cleanup_old_files, STATIC_DIR)
     try:
         contents = await file.read()
-        if file.content_type.startswith("video/") or file.filename.endswith(
+        if file.content_type.startswith("video/") or file.filename.lower().endswith(
             (".mp4", ".avi", ".mov")
         ):
             temp_name = f"temp_{uuid.uuid4()}.mp4"
             with open(temp_name, "wb") as f:
                 f.write(contents)
             cap = cv2.VideoCapture(temp_name)
-            success, frame = cap.read()
+            _, frame = cap.read()
             cap.release()
             if os.path.exists(temp_name):
                 os.remove(temp_name)
             image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         else:
             image = Image.open(io.BytesIO(contents))
-        return await analyze_image(image, str(uuid.uuid4()))
+
+        step1_time = time.time() - step1_start
+        unique_id = str(uuid.uuid4())
+        chat_sessions[unique_id] = 0
+
+        result = await analyze_image(image, unique_id)
+        print(f"Phase 1 (Local Loading): {step1_time:.4f}s")
+        print(
+            f"TOTAL TIME: {step1_time + result['step2_time'] + result['step3_time']:.4f}s"
+        )
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ✅ [수정된 부분] 404 에러 방지를 위해 하이픈(-) 경로로 설정
 @app.post("/predict-link")
 async def predict_link(background_tasks: BackgroundTasks, payload: dict = Body(...)):
+    step1_start = time.time()
     background_tasks.add_task(cleanup_old_files, STATIC_DIR)
     try:
         url = payload.get("url")
         start_time = payload.get("startTime", 0)
-
         ydl_opts = {"format": "best", "quiet": True, "noplaylist": True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             video_url = info["url"]
-
         cap = cv2.VideoCapture(video_url)
         cap.set(cv2.CAP_PROP_POS_MSEC, start_time * 1000)
-        success, frame = cap.read()
+        _, frame = cap.read()
         cap.release()
-
-        if not success:
-            raise HTTPException(
-                status_code=400, detail="영상 프레임을 가져올 수 없습니다."
-            )
-
         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        return await analyze_image(image, str(uuid.uuid4()))
 
+        step1_time = time.time() - step1_start
+        unique_id = str(uuid.uuid4())
+        chat_sessions[unique_id] = 0
+
+        result = await analyze_image(image, unique_id)
+        print(f"Phase 1 (SNS Loading): {step1_time:.4f}s")
+        print(
+            f"TOTAL TIME: {step1_time + result['step2_time'] + result['step3_time']:.4f}s"
+        )
+        return result
     except Exception as e:
-        print(f"❌ Link Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat")
+async def chat_with_deepeye(payload: dict = Body(...)):
+    user_msg = payload.get("message")
+    context = payload.get("context", "No context available")
+    lime_url = payload.get("lime_url", "")
+    session_id = payload.get("session_id", "default_session")
+    current_count = chat_sessions.get(session_id, 0)
+    if current_count >= 3:
+        return {
+            "reply": "You have exceeded the maximum limit of 3 follow-up questions."
+        }
+    try:
+        content_list = [
+            f"You are the DeepEye visual forensic AI. Analyze the LIME attribution image and the context, then answer the user question strictly in fluent English as plain text (no markdown).\nContext: {context}\nQuestion: {user_msg}"
+        ]
+        if lime_url:
+            img_path = os.path.join(STATIC_DIR, lime_url.split("/")[-1])
+            if os.path.exists(img_path):
+                content_list.append(Image.open(img_path))
+        response = client.models.generate_content(
+            model=MODEL_NAME, contents=content_list
+        )
+        chat_sessions[session_id] = current_count + 1
+        return {"reply": response.text.strip()}
+    except Exception as e:
+        return {"reply": "An error occurred while generating the response."}
 
 
 if __name__ == "__main__":
