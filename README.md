@@ -5,7 +5,6 @@
 </p>
 
 <p align="center">
-  <a href="https://doi.org/10.1109/ACCESS.2017.DOI"><img src="https://img.shields.io/badge/IEEE%20Access-Paper-blue.svg" alt="Paper"></a>
   <img src="https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C.svg" alt="PyTorch">
   <img src="https://img.shields.io/badge/Backend-FastAPI-009688.svg" alt="FastAPI">
