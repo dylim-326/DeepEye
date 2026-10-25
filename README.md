@@ -1,8 +1,5 @@
 # DeepEye: A Human-Centric Deepfake Detection Framework with Hybrid Visual Explanations and Large Language Models
 
-<p align="center">
-  <img src="assets/web_demo.png" alt="DeepEye Web Interface" width="92%">
-</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg" alt="Python 3.10+">
@@ -11,6 +8,10 @@
   <img src="https://img.shields.io/badge/Frontend-React.js-61DAFB.svg" alt="React">
   <img src="https://img.shields.io/badge/LLM-Gemini%202.5%20Flash-9cf.svg" alt="Gemini">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
+</p>
+
+<p align="center">
+  <img src="assets/web_demo.png" alt="DeepEye Web Interface" width="92%">
 </p>
 
 ---
